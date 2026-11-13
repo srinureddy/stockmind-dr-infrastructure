@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StockMind — Disaster Recovery Architecture</title>
+<style>
+:root{
+  --bg:#0f1117;--surface:#1a1d27;--surface2:#22263a;--border:#2e3348;
+  --text:#e2e8f0;--muted:#8892a4;--accent:#6366f1;--accent2:#22d3ee;
+  --green:#10b981;--red:#ef4444;--yellow:#f59e0b;--orange:#f97316;
+  --code-bg:#111827;--sidebar-w:260px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;display:flex;min-height:100vh}
+/* Progress bar */
+#progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--accent),var(--accent2));width:0%;z-index:200;transition:width .2s}
+/* Sidebar */
+#sidebar{position:fixed;top:0;left:0;width:var(--sidebar-w);height:100vh;background:var(--surface);border-right:1px solid var(--border);overflow-y:auto;z-index:100;padding:20px 0}
+#sidebar h2{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);padding:0 20px 12px;border-bottom:1px solid var(--border);margin-bottom:12px}
+#sidebar a{display:block;padding:7px 20px;font-size:13px;color:var(--muted);text-decoration:none;border-left:3px solid transparent;transition:all .15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sidebar a:hover{color:var(--text);background:var(--surface2)}
+#sidebar a.active{color:var(--accent2);border-left-color:var(--accent2);background:var(--surface2)}
+/* Search */
+#search-wrap{padding:0 14px 12px;border-bottom:1px solid var(--border);margin-bottom:8px}
+#search{width:100%;padding:7px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px;outline:none}
+#search:focus{border-color:var(--accent)}
+/* Main */
+#main{margin-left:var(--sidebar-w);flex:1;padding:40px 48px;max-width:1100px}
+/* Header */
+header{margin-bottom:36px}
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+.badge-pilot{background:rgba(99,102,241,.2);color:var(--accent)}
+.badge-dr{background:rgba(239,68,68,.15);color:var(--red)}
+.badge-ok{background:rgba(16,185,129,.15);color:var(--green)}
+h1{font-size:30px;font-weight:700;margin:12px 0 6px;background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.subtitle{color:var(--muted);font-size:14px;margin-bottom:20px}
+.meta-row{display:flex;gap:16px;flex-wrap:wrap}
+.meta-chip{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;font-size:12px;color:var(--muted)}
+.meta-chip strong{color:var(--text);display:block;font-size:14px}
+/* Explain toggle */
+#explain-btn{position:fixed;top:12px;right:16px;z-index:150;background:var(--surface2);border:1px solid var(--border);color:var(--muted);padding:7px 16px;border-radius:20px;cursor:pointer;font-size:13px;transition:all .2s}
+#explain-btn.on{background:rgba(16,185,129,.2);border-color:var(--green);color:var(--green)}
+.explain-box{display:none;background:linear-gradient(135deg,rgba(99,102,241,.08),rgba(34,211,238,.06));border:1px solid rgba(99,102,241,.25);border-radius:10px;padding:16px 20px;margin-top:16px;font-size:14px;line-height:1.75;color:#cbd5e1}
+.explain-box.show{display:block}
+.explain-box h4{color:var(--accent2);font-size:13px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+/* Sections */
+.section{margin-bottom:48px;padding-top:16px;border-top:1px solid var(--border)}
+.section h2{font-size:20px;font-weight:700;color:var(--text);margin-bottom:12px;display:flex;align-items:center;gap:10px}
+.section h2 .num{background:var(--accent);color:#fff;border-radius:50%;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+.section h3{font-size:16px;font-weight:600;color:var(--accent2);margin:20px 0 8px}
+p{line-height:1.75;color:#cbd5e1;margin-bottom:12px;font-size:14.5px}
+ul,ol{padding-left:20px;margin-bottom:12px}
+li{line-height:1.75;color:#cbd5e1;font-size:14.5px;margin-bottom:4px}
+li strong{color:var(--text)}
+/* Code blocks */
+.code-wrap{position:relative;margin:12px 0 20px}
+.code-label{position:absolute;top:8px;left:12px;font-size:10px;text-transform:uppercase;color:var(--muted);letter-spacing:.06em}
+.copy-btn{position:absolute;top:8px;right:8px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px;transition:all .2s}
+.copy-btn:hover{color:var(--text);border-color:var(--accent)}
+pre{background:var(--code-bg);border:1px solid var(--border);border-radius:10px;padding:36px 16px 16px;overflow-x:auto;font-size:13px;line-height:1.6;color:#a5f3fc}
+pre .kw{color:#818cf8}
+pre .str{color:#86efac}
+pre .cmt{color:#4b5563;font-style:italic}
+pre .fn{color:#f9a8d4}
+pre .num2{color:#fde68a}
+/* Tables */
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px}
+th{background:var(--surface2);color:var(--accent);text-align:left;padding:10px 14px;font-weight:600;border-bottom:2px solid var(--border)}
+td{padding:9px 14px;border-bottom:1px solid var(--border);color:#cbd5e1}
+tr:hover td{background:var(--surface2)}
+/* Diagram */
+.diagram{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:24px;margin:20px 0;overflow-x:auto}
+/* Alert boxes */
+.alert{border-radius:8px;padding:14px 18px;margin:16px 0;font-size:14px;border-left:4px solid}
+.alert-warn{background:rgba(245,158,11,.08);border-color:var(--yellow);color:#fde68a}
+.alert-info{background:rgba(99,102,241,.08);border-color:var(--accent);color:#c7d2fe}
+.alert-ok{background:rgba(16,185,129,.08);border-color:var(--green);color:#a7f3d0}
+.alert-red{background:rgba(239,68,68,.08);border-color:var(--red);color:#fca5a5}
+/* Cost grid */
+.cost-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:16px 0}
+.cost-card{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+.cost-card .label{font-size:12px;color:var(--muted);margin-bottom:4px}
+.cost-card .value{font-size:20px;font-weight:700;color:var(--accent2)}
+.cost-card .sub{font-size:11px;color:var(--muted);margin-top:2px}
+/* Timeline */
+.timeline{margin:16px 0}
+.tl-item{display:flex;gap:16px;margin-bottom:16px}
+.tl-dot{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0}
+.tl-dot.ok{background:rgba(16,185,129,.2);color:var(--green);border:2px solid var(--green)}
+.tl-dot.warn{background:rgba(245,158,11,.2);color:var(--yellow);border:2px solid var(--yellow)}
+.tl-dot.red{background:rgba(239,68,68,.2);color:var(--red);border:2px solid var(--red)}
+.tl-body h4{font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px}
+.tl-body p{margin:0;font-size:13px}
+/* Scenario cards */
+.scenario-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin:16px 0}
+.scenario-card{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:18px}
+.scenario-card h4{font-size:14px;font-weight:700;color:var(--text);margin-bottom:6px;display:flex;align-items:center;gap:8px}
+.scenario-card .rto{font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px}
+.rto-green{background:rgba(16,185,129,.2);color:var(--green)}
+.rto-yellow{background:rgba(245,158,11,.2);color:var(--yellow)}
+.rto-red{background:rgba(239,68,68,.2);color:var(--red)}
+.scenario-card p{font-size:13px;margin:0}
+/* Responsive */
+@media(max-width:768px){
+  #sidebar{display:none}
+  #main{margin-left:0;padding:20px}
+  #explain-btn{top:auto;bottom:12px}
+}
+</style>
+</head>
+<body>
+
+<div id="progress"></div>
+
+<button id="explain-btn" onclick="toggleExplain()">💡 Explain Mode</button>
+
+<nav id="sidebar">
+  <h2>StockMind DR</h2>
+  <div id="search-wrap"><input id="search" placeholder="Search sections…" oninput="filterNav(this.value)"></div>
+  <a href="#overview">1. Overview</a>
+  <a href="#strategy">2. DR Strategy</a>
+  <a href="#architecture">3. Architecture</a>
+  <a href="#network">4. DR Network</a>
+  <a href="#compute">5. DR Compute</a>
+  <a href="#data">6. Data Replication</a>
+  <a href="#routing">7. DNS Failover</a>
+  <a href="#automation">8. Auto Failover</a>
+  <a href="#scenarios">9. Production Scenarios</a>
+  <a href="#rto-rpo">10. RTO / RPO</a>
+  <a href="#cost">11. Cost Breakdown</a>
+  <a href="#runbook">12. Failover Runbook</a>
+  <a href="#testing">13. DR Testing Guide</a>
+  <a href="#terraform">14. How to Deploy</a>
+</nav>
+
+<main id="main">
+  <header>
+    <div>
+      <span class="badge badge-dr">Disaster Recovery</span>
+      <span class="badge badge-pilot" style="margin-left:8px">Pilot Light</span>
+      <span class="badge badge-ok" style="margin-left:8px">Multi-Region</span>
+    </div>
+    <h1>StockMind DR Architecture</h1>
+    <p class="subtitle">Complete Disaster Recovery infrastructure for production — ap-south-2 (Primary) → ap-south-1 (DR)</p>
+    <div class="meta-row">
+      <div class="meta-chip"><strong>Primary</strong>ap-south-2 (Hyderabad)</div>
+      <div class="meta-chip"><strong>DR Region</strong>ap-south-1 (Mumbai)</div>
+      <div class="meta-chip"><strong>Strategy</strong>Pilot Light</div>
+      <div class="meta-chip"><strong>RTO Target</strong>15–20 minutes</div>
+      <div class="meta-chip"><strong>RPO Target</strong>&lt; 24 hours</div>
+      <div class="meta-chip"><strong>Monthly DR Cost</strong>~$92</div>
+    </div>
+  </header>
+
+  <!-- ── 1. Overview ───────────────────────────────────────────────────────── -->
+  <section class="section" id="overview">
+    <h2><span class="num">1</span>What Is Disaster Recovery?</h2>
+    <p>Disaster Recovery (DR) means having a backup copy of your entire application ready in a different physical location, so that if something catastrophic happens to your main infrastructure — a data-centre power failure, a regional AWS outage, accidental data deletion — you can switch all users over to the backup within minutes.</p>
+    <p>StockMind serves real-money stock-market data. Any extended outage directly harms users. This DR system is designed so that <strong>a full region failure causes at most 15–20 minutes of downtime</strong> and no more than 24 hours of data loss.</p>
+    <div class="explain-box" id="exp-overview">
+      <h4>Simple explanation</h4>
+      Think of it like a generator for your house. While mains power is on the generator sits idle — costing very little. The moment power cuts, it kicks in automatically. Here the "generator" is an entire second copy of StockMind sitting in Mumbai (ap-south-1), silent and cheap, ready to start in minutes if Hyderabad (ap-south-2) goes down.
+    </div>
+  </section>
+
+  <!-- ── 2. Strategy ───────────────────────────────────────────────────────── -->
+  <section class="section" id="strategy">
+    <h2><span class="num">2</span>DR Strategy: Pilot Light</h2>
+    <p>AWS defines four DR strategies from cheapest to fastest: Backup &amp; Restore → Pilot Light → Warm Standby → Multi-Site Active/Active. We use <strong>Pilot Light</strong>.</p>
+    <table>
+      <tr><th>Strategy</th><th>How it works</th><th>RTO</th><th>Monthly Cost</th></tr>
+      <tr><td>Backup &amp; Restore</td><td>Snapshots only. Full rebuild on disaster.</td><td>Hours–days</td><td>~$10</td></tr>
+      <tr><td><strong>Pilot Light ✓</strong></td><td><strong>Infrastructure exists, ECS at 0, DB stopped. Lambda starts it.</strong></td><td><strong>15–20 min</strong></td><td><strong>~$92</strong></td></tr>
+      <tr><td>Warm Standby</td><td>Minimal live instances running always.</td><td>5–10 min</td><td>~$220</td></tr>
+      <tr><td>Multi-Site Active/Active</td><td>Full mirror, traffic split 50/50.</td><td>&lt;1 min</td><td>~$600</td></tr>
+    </table>
+    <div class="explain-box" id="exp-strategy">
+      <h4>Why Pilot Light?</h4>
+      Pilot Light is the sweet spot for a startup: it costs 85% less than active/active but recovers 10× faster than pure backups. The ECS services are set to <code>desired_count = 0</code> (zero Fargate charges) and the TimescaleDB EC2 is stopped (only the disk is billed at ~$16/month). When disaster hits, a Lambda function starts everything within 15 minutes.
+    </div>
+    <div class="code-wrap">
+      <span class="code-label">HCL — pilot light ECS service</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+<pre><span class="cmt"># desired = 0 in pilot_light → zero Fargate cost</span>
+<span class="kw">resource</span> <span class="str">"aws_ecs_service"</span> <span class="str">"backend"</span> {
+  name          = <span class="str">"${var.name}-backend-svc"</span>
+  cluster       = aws_ecs_cluster.dr.id
+  desired_count = <span class="kw">local</span>.desired   <span class="cmt"># 0 in pilot_light</span>
+
+  <span class="kw">lifecycle</span> {
+    ignore_changes = [desired_count]  <span class="cmt"># Lambda manages scaling</span>
+  }
+}</pre>
+    </div>
+  </section>
+
+  <!-- ── 3. Architecture ──────────────────────────────────────────────────── -->
+  <section class="section" id="architecture">
+    <h2><span class="num">3</span>DR Architecture Diagram</h2>
+    <div class="diagram">
+      <svg viewBox="0 0 900 480" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:900px;display:block;margin:0 auto">
+        <defs>
+          <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#6366f1"/>
+          </marker>
+          <marker id="arr-green" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#10b981"/>
+          </marker>
+          <marker id="arr-red" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#ef4444"/>
+          </marker>
+        </defs>
+        <!-- Primary Region -->
+        <rect x="20" y="10" width="380" height="440" rx="12" fill="none" stroke="#6366f1" stroke-width="1.5" stroke-dasharray="6,3"/>
+        <text x="30" y="30" fill="#6366f1" font-size="11" font-weight="600">PRIMARY — ap-south-2 (Hyderabad)</text>
+        <!-- Primary ALB -->
+        <rect x="40" y="50" width="340" height="44" rx="8" fill="#1e2235" stroke="#6366f1" stroke-width="1"/>
+        <text x="210" y="77" fill="#e2e8f0" font-size="12" text-anchor="middle" font-weight="600">Application Load Balancer</text>
+        <!-- Primary ECS -->
+        <rect x="40" y="120" width="150" height="40" rx="6" fill="#1e2235" stroke="#6366f1" stroke-width="1"/>
+        <text x="115" y="145" fill="#e2e8f0" font-size="11" text-anchor="middle">Frontend ECS ×2</text>
+        <rect x="230" y="120" width="150" height="40" rx="6" fill="#1e2235" stroke="#6366f1" stroke-width="1"/>
+        <text x="305" y="145" fill="#e2e8f0" font-size="11" text-anchor="middle">Backend ECS ×2</text>
+        <!-- Primary DB+Redis -->
+        <rect x="40" y="200" width="150" height="40" rx="6" fill="#1e2235" stroke="#22d3ee" stroke-width="1"/>
+        <text x="115" y="225" fill="#22d3ee" font-size="11" text-anchor="middle">TimescaleDB EC2</text>
+        <rect x="230" y="200" width="150" height="40" rx="6" fill="#1e2235" stroke="#22d3ee" stroke-width="1"/>
+        <text x="305" y="225" fill="#22d3ee" font-size="11" text-anchor="middle">Redis ElastiCache</text>
+        <!-- Primary S3+ECR -->
+        <rect x="40" y="280" width="150" height="40" rx="6" fill="#1e2235" stroke="#f59e0b" stroke-width="1"/>
+        <text x="115" y="305" fill="#f59e0b" font-size="11" text-anchor="middle">S3 Artifacts</text>
+        <rect x="230" y="280" width="150" height="40" rx="6" fill="#1e2235" stroke="#f59e0b" stroke-width="1"/>
+        <text x="305" y="305" fill="#f59e0b" font-size="11" text-anchor="middle">ECR Repositories</text>
+        <!-- Health check annotation -->
+        <rect x="40" y="390" width="340" height="40" rx="6" fill="rgba(239,68,68,.1)" stroke="#ef4444" stroke-width="1"/>
+        <text x="210" y="415" fill="#ef4444" font-size="11" text-anchor="middle">Route53 Health Check → CloudWatch Alarm</text>
+
+        <!-- Route53 centre -->
+        <rect x="380" y="200" width="140" height="80" rx="10" fill="rgba(99,102,241,.15)" stroke="#6366f1" stroke-width="1.5"/>
+        <text x="450" y="233" fill="#818cf8" font-size="12" text-anchor="middle" font-weight="600">Route 53</text>
+        <text x="450" y="252" fill="#818cf8" font-size="10" text-anchor="middle">DNS Failover</text>
+        <text x="450" y="268" fill="#818cf8" font-size="10" text-anchor="middle">PRIMARY/SECONDARY</text>
+
+        <!-- Replication arrows -->
+        <line x1="210" y1="320" x2="490" y2="395" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr)"/>
+        <text x="300" y="360" fill="#f59e0b" font-size="9">S3 CRR + ECR Replication</text>
+        <line x1="210" y1="240" x2="490" y2="395" stroke="#22d3ee" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr)"/>
+        <text x="230" y="295" fill="#22d3ee" font-size="9">EBS Snapshots (AWS Backup)</text>
+
+        <!-- Failover arrow -->
+        <line x1="420" y1="390" x2="600" y2="390" stroke="#ef4444" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arr-red)"/>
+        <text x="480" y="383" fill="#ef4444" font-size="9">EventBridge → Lambda</text>
+
+        <!-- DR Region -->
+        <rect x="500" y="10" width="380" height="440" rx="12" fill="none" stroke="#10b981" stroke-width="1.5" stroke-dasharray="6,3"/>
+        <text x="510" y="30" fill="#10b981" font-size="11" font-weight="600">DR — ap-south-1 (Mumbai) — Pilot Light</text>
+        <!-- DR ALB -->
+        <rect x="520" y="50" width="340" height="44" rx="8" fill="#1e2235" stroke="#10b981" stroke-width="1"/>
+        <text x="690" y="77" fill="#e2e8f0" font-size="12" text-anchor="middle" font-weight="600">DR Application Load Balancer</text>
+        <!-- DR ECS (stopped) -->
+        <rect x="520" y="120" width="150" height="40" rx="6" fill="rgba(239,68,68,.08)" stroke="#ef4444" stroke-width="1" stroke-dasharray="4,2"/>
+        <text x="595" y="140" fill="#ef4444" font-size="11" text-anchor="middle">Frontend ECS</text>
+        <text x="595" y="155" fill="#ef4444" font-size="9" text-anchor="middle">desired=0 (pilot light)</text>
+        <rect x="710" y="120" width="150" height="40" rx="6" fill="rgba(239,68,68,.08)" stroke="#ef4444" stroke-width="1" stroke-dasharray="4,2"/>
+        <text x="785" y="140" fill="#ef4444" font-size="11" text-anchor="middle">Backend ECS</text>
+        <text x="785" y="155" fill="#ef4444" font-size="9" text-anchor="middle">desired=0 (pilot light)</text>
+        <!-- DR DB+Redis -->
+        <rect x="520" y="200" width="150" height="40" rx="6" fill="rgba(239,68,68,.08)" stroke="#ef4444" stroke-width="1" stroke-dasharray="4,2"/>
+        <text x="595" y="220" fill="#ef4444" font-size="11" text-anchor="middle">TimescaleDB EC2</text>
+        <text x="595" y="234" fill="#ef4444" font-size="9" text-anchor="middle">STOPPED</text>
+        <rect x="710" y="200" width="150" height="40" rx="6" fill="#1e2235" stroke="#22d3ee" stroke-width="1"/>
+        <text x="785" y="225" fill="#22d3ee" font-size="11" text-anchor="middle">Redis (t4g.micro)</text>
+        <!-- DR S3+ECR -->
+        <rect x="520" y="280" width="150" height="40" rx="6" fill="#1e2235" stroke="#f59e0b" stroke-width="1"/>
+        <text x="595" y="305" fill="#f59e0b" font-size="11" text-anchor="middle">S3 Replica</text>
+        <rect x="710" y="280" width="150" height="40" rx="6" fill="#1e2235" stroke="#f59e0b" stroke-width="1"/>
+        <text x="785" y="305" fill="#f59e0b" font-size="11" text-anchor="middle">ECR Replica</text>
+        <!-- Lambda -->
+        <rect x="520" y="390" width="340" height="40" rx="6" fill="rgba(16,185,129,.1)" stroke="#10b981" stroke-width="1"/>
+        <text x="690" y="415" fill="#10b981" font-size="11" text-anchor="middle">Lambda Failover — scales ECS + starts EC2</text>
+
+        <!-- Route53 to both ALBs -->
+        <line x1="450" y1="200" x2="395" y2="94" stroke="#6366f1" stroke-width="1.5" marker-end="url(#arr)"/>
+        <line x1="470" y1="200" x2="525" y2="94" stroke="#6366f1" stroke-width="1.5" marker-end="url(#arr)"/>
+      </svg>
+    </div>
+    <div class="explain-box" id="exp-architecture">
+      <h4>How to read this diagram</h4>
+      The left box (purple border) is the live production region — Hyderabad. The right box (green border) is the DR region — Mumbai. The dashed-red boxes in Mumbai show resources that exist but are either stopped (TimescaleDB) or at zero tasks (ECS). Route 53 sits in the middle and points all DNS traffic at Hyderabad. If Hyderabad fails, the CloudWatch alarm fires, EventBridge triggers the Lambda, the Lambda starts everything in Mumbai, and Route 53 automatically begins sending DNS to the Mumbai ALB.
+    </div>
+  </section>
+
+  <!-- ── 4. Network ────────────────────────────────────────────────────────── -->
+  <section class="section" id="network">
+    <h2><span class="num">4</span>DR Network (dr_network module)</h2>
+    <p>The DR VPC mirrors the primary VPC in structure but uses a non-overlapping CIDR to allow future VPC peering if needed.</p>
+    <table>
+      <tr><th>Component</th><th>Primary (ap-south-2)</th><th>DR (ap-south-1)</th><th>Why different</th></tr>
+      <tr><td>VPC CIDR</td><td>10.40.0.0/16</td><td>10.50.0.0/16</td><td>No overlap — peering-ready</td></tr>
+      <tr><td>AZs used</td><td>ap-south-2a/b</td><td>ap-south-1a/b</td><td>Multi-AZ for HA within DR</td></tr>
+      <tr><td>NAT Gateways</td><td>2 (one per AZ)</td><td>1 (cost saving)</td><td>Save ~$32/month. Acceptable in standby mode.</td></tr>
+      <tr><td>Subnets</td><td>6 (public/app/data × 2)</td><td>6 (same layout)</td><td>Identical for consistent Terraform</td></tr>
+    </table>
+    <div class="explain-box" id="exp-network">
+      <h4>Why only one NAT Gateway in DR?</h4>
+      In production we pay for two NAT Gateways (one per Availability Zone) so that if an AZ dies, outbound internet still works from the other AZ. In the DR region, the whole point is that this region is only handling traffic during a major disaster — the chance of an AZ failure simultaneously with a region failure of the primary is extremely small. So one NAT Gateway saves about $32/month with negligible additional risk.
+    </div>
+    <div class="code-wrap">
+      <span class="code-label">HCL — single NAT gateway in DR</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+<pre><span class="cmt"># Cost optimisation: 1 NAT in DR vs 1-per-AZ in primary</span>
+<span class="kw">resource</span> <span class="str">"aws_nat_gateway"</span> <span class="str">"dr"</span> {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.public[<span class="num2">0</span>].id  <span class="cmt"># single NAT in AZ-a</span>
+  depends_on    = [aws_internet_gateway.dr]
+}</pre>
+    </div>
+  </section>
+
+  <!-- ── 5. Compute ────────────────────────────────────────────────────────── -->
+  <section class="section" id="compute">
+    <h2><span class="num">5</span>DR Compute (dr_compute module)</h2>
+    <h3>ECS Fargate — Pilot Light (desired_count = 0)</h3>
+    <p>All four ECS services (frontend, backend, celery-worker, celery-beat) have <code>desired_count = 0</code> in pilot-light mode. The task definitions, IAM roles, security groups, and load balancer rules are all pre-created — only the actual Fargate tasks are absent. This means startup from 0 → running takes only the time to pull the Docker image and pass the health check (typically 3–5 minutes per service).</p>
+    <h3>TimescaleDB EC2 — Stopped State</h3>
+    <p>The EC2 instance is created normally but then stopped via a Terraform <code>null_resource</code> local-exec. While stopped, AWS charges only for the attached EBS volume (~$16/month for 200 GB gp3). The instance retains its private IP and ENI, so the connection strings stored in Secrets Manager remain valid — no updates needed at failover time.</p>
+    <h3>Redis — Smaller Instance in DR</h3>
+    <p>Redis is kept running (unlike ECS which is at 0) because it cannot be "stopped". We use a <code>cache.t4g.micro</code> in DR vs <code>cache.t4g.small</code> in primary. At failover, the application connects to Redis in DR — it starts with a cold cache but recovers within seconds as requests populate it.</p>
+    <div class="explain-box" id="exp-compute">
+      <h4>How does the ECS start-up work at failover?</h4>
+      The failover Lambda calls <code>ecs:UpdateService</code> for each service, setting <code>desiredCount</code> to the target number (e.g., 2 for frontend, 2 for backend). ECS schedules those tasks on Fargate. Each task pulls its Docker image from ECR (which already has the replicated image), starts the container, and the ALB waits for the health check to pass. The whole process takes 3–8 minutes per service, running in parallel. Total from zero to fully healthy: about 10–12 minutes.
+    </div>
+    <div class="code-wrap">
+      <span class="code-label">HCL — stop EC2 after creation (pilot light)</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+<pre><span class="kw">resource</span> <span class="str">"null_resource"</span> <span class="str">"stop_timescale_pilot_light"</span> {
+  count = var.dr_strategy == <span class="str">"pilot_light"</span> ? <span class="num2">1</span> : <span class="num2">0</span>
+
+  provisioner <span class="str">"local-exec"</span> {
+    command = <span class="str">"aws ec2 stop-instances \
+      --instance-ids ${aws_instance.timescale.id} \
+      --region ${var.dr_region} || true"</span>
+  }
+}</pre>
+    </div>
+  </section>
+
+  <!-- ── 6. Data Replication ───────────────────────────────────────────────── -->
+  <section class="section" id="data">
+    <h2><span class="num">6</span>Data Replication (dr_data module)</h2>
+    <table>
+      <tr><th>Data Store</th><th>Replication Method</th><th>RPO</th><th>How it works</th></tr>
+      <tr><td>S3 Artifacts</td><td>S3 Cross-Region Replication (CRR)</td><td>Seconds–minutes</td><td>Every object PUT in primary is copied automatically to DR bucket</td></tr>
+      <tr><td>ECR Images</td><td>ECR Cross-Region Replication</td><td>Seconds–minutes</td><td>Account-level policy: every push to ap-south-2 ECR → ap-south-1 ECR</td></tr>
+      <tr><td>TimescaleDB (EBS)</td><td>AWS Backup cross-region copy</td><td>Up to 24 hours</td><td>Daily EBS snapshot taken at 02:00 UTC, copied to DR vault in ap-south-1</td></tr>
+      <tr><td>Redis</td><td>None (ephemeral)</td><td>N/A (cache)</td><td>Redis is a cache — it rebuilds from DB on first request. No replication needed.</td></tr>
+      <tr><td>Secrets Manager</td><td>Terraform (same values)</td><td>At deploy time</td><td>Same secret values written to both regions via Terraform</td></tr>
+    </table>
+    <div class="alert alert-warn">
+      <strong>Important:</strong> TimescaleDB RPO is up to 24 hours. This means up to one day of market data could be lost in a worst-case region failure. For production, consider reducing the backup schedule to every 6 hours for more granular recovery points.
+    </div>
+    <div class="explain-box" id="exp-data">
+      <h4>What is RPO and why does it matter?</h4>
+      RPO (Recovery Point Objective) is the maximum amount of data you can afford to lose. If your TimescaleDB backup runs at 02:00 UTC and disaster strikes at 23:00 UTC, you lose 21 hours of time-series data. For stock data this means charts and analytics would be missing data for that period. The application would still work — users could still log in and trade — but historical charts would have a gap.
+    </div>
+    <div class="code-wrap">
+      <span class="code-label">HCL — S3 Cross-Region Replication rule</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+<pre><span class="kw">resource</span> <span class="str">"aws_s3_bucket_replication_configuration"</span> <span class="str">"primary_to_dr"</span> {
+  provider = aws.primary
+  bucket   = var.primary_s3_bucket_name
+  role     = aws_iam_role.s3_crr.arn
+
+  rule {
+    id     = <span class="str">"replicate-all-to-dr"</span>
+    status = <span class="str">"Enabled"</span>
+    filter {}  <span class="cmt"># replicate all objects</span>
+
+    destination {
+      bucket        = var.dr_s3_bucket_arn
+      storage_class = <span class="str">"STANDARD_IA"</span>  <span class="cmt"># cheaper in DR</span>
+    }
+  }
+}</pre>
+    </div>
+  </section>
+
+  <!-- ── 7. Routing ────────────────────────────────────────────────────────── -->
+  <section class="section" id="routing">
+    <h2><span class="num">7</span>DNS Failover — Route 53 (dr_routing module)</h2>
+    <p>Route 53 is configured with <strong>failover routing policy</strong> — the same DNS name (<code>stockmindai.xyz</code> and <code>api.stockmindai.xyz</code>) has two records: one pointing to the primary ALB (marked PRIMARY) and one pointing to the DR ALB (marked SECONDARY). Route 53 continuously monitors the primary ALB via health checks. When three consecutive checks fail (90 seconds), Route 53 automatically starts returning the DR ALB's IP address.</p>
+    <div class="alert alert-info">
+      Route 53 health checks run from AWS PoPs globally (not from your VPC). CloudWatch alarms that monitor health checks <strong>must be in us-east-1</strong> — this is an AWS requirement. The dr_routing module uses a separate <code>aws.us_east_1</code> provider alias for this.
+    </div>
+    <div class="code-wrap">
+      <span class="code-label">HCL — Route53 failover record pair</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+<pre><span class="cmt"># PRIMARY — normal traffic goes here</span>
+<span class="kw">resource</span> <span class="str">"aws_route53_record"</span> <span class="str">"api_primary"</span> {
+  zone_id        = var.hosted_zone_id
+  name           = var.api_domain_name
+  type           = <span class="str">"A"</span>
+  set_identifier = <span class="str">"primary"</span>
+  alias {
+    name    = var.primary_alb_dns
+    zone_id = var.primary_alb_zone_id
+    evaluate_target_health = <span class="kw">true</span>
+  }
+  failover_routing_policy { type = <span class="str">"PRIMARY"</span> }
+  health_check_id = aws_route53_health_check.primary_api.id
+}
+
+<span class="cmt"># SECONDARY — only used when PRIMARY health check fails</span>
+<span class="kw">resource</span> <span class="str">"aws_route53_record"</span> <span class="str">"api_dr"</span> {
+  zone_id        = var.hosted_zone_id
+  name           = var.api_domain_name
+  type           = <span class="str">"A"</span>
+  set_identifier = <span class="str">"dr"</span>
+  alias {
+    name    = var.dr_alb_dns
+    zone_id = var.dr_alb_zone_id
+    evaluate_target_health = <span class="kw">true</span>
+  }
+  failover_routing_policy { type = <span class="str">"SECONDARY"</span> }
+}</pre>
+    </div>
+    <div class="explain-box" id="exp-routing">
+      <h4>DNS TTL and failover speed</h4>
+      When Route 53 detects a failure, it stops returning the primary ALB's IP. The speed of failover depends on the DNS TTL (Time-To-Live). If your domain has a TTL of 60 seconds, browsers will check for a new IP every minute — so they'll switch within 60 seconds of Route 53 updating. The health check itself takes about 90 seconds (3 checks × 30 seconds). Total DNS failover time: 2–4 minutes. The Lambda startup of ECS adds another 10–15 minutes, so the full user-visible RTO is about 15–20 minutes.
+    </div>
+  </section>
+
+  <!-- ── 8. Automation ─────────────────────────────────────────────────────── -->
+  <section class="section" id="automation">
+    <h2><span class="num">8</span>Automated Failover (dr_automation module)</h2>
+    <p>Failover is fully automated via three AWS services working together:</p>
+    <ol>
+      <li><strong>Route 53 health check</strong> detects the primary ALB is unhealthy</li>
+      <li><strong>CloudWatch alarm</strong> transitions to ALARM state (us-east-1)</li>
+      <li><strong>EventBridge rule</strong> matches the alarm state-change event and invokes the Lambda</li>
+      <li><strong>Lambda</strong> starts TimescaleDB EC2, scales all ECS services to desired counts, publishes SNS</li>
+      <li><strong>SNS</strong> emails the operations team</li>
+    </ol>
+    <div class="code-wrap">
+      <span class="code-label">Python — Lambda failover core logic</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+<pre><span class="kw">def</span> <span class="fn">handler</span>(event, context):
+    <span class="cmt"># Step 1: start TimescaleDB EC2</span>
+    ec2.start_instances(InstanceIds=[TIMESCALE_INSTANCE])
+    waiter = ec2.get_waiter(<span class="str">"instance_running"</span>)
+    waiter.wait(InstanceIds=[TIMESCALE_INSTANCE])
+
+    <span class="cmt"># Step 2: scale ECS services from 0 → desired</span>
+    <span class="kw">for</span> svc_key, svc_cfg <span class="kw">in</span> SERVICES.items():
+        ecs.update_service(
+            cluster=ECS_CLUSTER,
+            service=svc_cfg[<span class="str">"name"</span>],
+            desiredCount=svc_cfg[<span class="str">"desired"</span>],
+        )
+
+    <span class="cmt"># Step 3: notify operations team</span>
+    sns.publish(TopicArn=SNS_TOPIC_ARN,
+                Subject=<span class="str">"[StockMind DR] Failover SUCCESS"</span>,
+                Message=<span class="str">"All DR services started."</span>)</pre>
+    </div>
+    <div class="explain-box" id="exp-automation">
+      <h4>Why EventBridge instead of calling Lambda directly from CloudWatch?</h4>
+      EventBridge gives us a clean event-driven architecture. The CloudWatch alarm publishes its state change as an event. EventBridge acts as a router — in the future you could add more targets (Slack webhook, PagerDuty, Jira ticket) without modifying the Lambda. It also gives you a full audit trail in CloudTrail of exactly when each step triggered.
+    </div>
+  </section>
+
+  <!-- ── 9. Scenarios ───────────────────────────────────────────────────────── -->
+  <section class="section" id="scenarios">
+    <h2><span class="num">9</span>Production Disaster Scenarios</h2>
+    <p>These are the 10 real-world failure scenarios this DR architecture covers, with the specific recovery mechanism for each.</p>
+    <div class="scenario-grid">
+      <div class="scenario-card">
+        <h4>🌍 Full Region Failure <span class="rto rto-yellow">RTO: 15–20 min</span></h4>
+        <p>AWS ap-south-2 becomes entirely unavailable. Route53 health check fails → CloudWatch alarm → EventBridge → Lambda scales DR ECS + starts TimescaleDB. DNS automatically points to Mumbai.</p>
+      </div>
+      <div class="scenario-card">
+        <h4>💾 Database Corruption <span class="rto rto-red">RTO: 30–60 min</span></h4>
+        <p>TimescaleDB data is corrupted (bad migration, ransomware, operator error). Restore from latest AWS Backup cross-region snapshot in DR vault. Attach restored volume to DR EC2.</p>
+      </div>
+      <div class="scenario-card">
+        <h4>🐳 Container Image Corruption <span class="rto rto-green">RTO: 0 min</span></h4>
+        <p>A broken Docker image is pushed to ECR. Because tags are IMMUTABLE in both regions, the bad push creates a new tag. The ECS services still reference the old working tag. Zero impact.</p>
+      </div>
+      <div class="scenario-card">
+        <h4>🔑 Secret / Credential Breach <span class="rto rto-yellow">RTO: 5–10 min</span></h4>
+        <p>JWT secret or DB password is leaked. Update the secret in Secrets Manager (both regions). Force a new ECS deployment (<code>aws ecs update-service --force-new-deployment</code>). New tasks pick up new secrets.</p>
+      </div>
+      <div class="scenario-card">
+        <h4>🌐 AZ Failure (within region) <span class="rto rto-green">RTO: 0 min</span></h4>
+        <p>One Availability Zone in ap-south-2 fails. ECS Fargate is multi-AZ — healthy tasks in the other AZ continue serving traffic. ALB stops routing to the unhealthy AZ. No DR failover needed.</p>
+      </div>
+      <div class="scenario-card">
+        <h4>🚦 ALB / WAF Misconfiguration <span class="rto rto-yellow">RTO: 2–5 min</span></h4>
+        <p>A bad ALB listener rule blocks all traffic. Route53 health check detects the / endpoint returning non-2xx. After 3 consecutive failures (90 sec), DNS flips to DR ALB automatically.</p>
+      </div>
+      <div class="scenario-card">
+        <h4>📦 S3 Bucket Accidental Delete <span class="rto rto-green">RTO: &lt;1 min</span></h4>
+        <p>Primary S3 bucket objects deleted (or bucket deleted). CRR has already copied all objects to DR S3 bucket in ap-south-1. Update the ECS task definition S3_BUCKET env var and redeploy.</p>
+      </div>
+      <div class="scenario-card">
+        <h4>🔴 Redis Failure <span class="rto rto-green">RTO: 1–5 min</span></h4>
+        <p>Primary Redis cluster becomes unavailable. In DR region, Redis (t4g.micro) is already running. At failover, Celery and backend connect to DR Redis. Cold cache but operational within seconds.</p>
+      </div>
+      <div class="scenario-card">
+        <h4>🏗️ Infrastructure as Code Drift <span class="rto rto-yellow">RTO: 10–30 min</span></h4>
+        <p>Someone manually changed a security group or IAM policy, breaking the application. Run <code>terraform plan</code> to identify drift, then <code>terraform apply</code> to reconcile. DR Terraform is a clean reference state.</p>
+      </div>
+      <div class="scenario-card">
+        <h4>🔒 Account Compromise / Ransomware <span class="rto rto-red">RTO: 1–4 hrs</span></h4>
+        <p>AWS account is compromised. DR vault snapshots are in a separate AWS Backup vault with locked recovery points (WORM). Contact AWS Support to freeze the account. Restore from vault to a new account.</p>
+      </div>
+    </div>
+    <div class="explain-box" id="exp-scenarios">
+      <h4>What scenario is most likely in production?</h4>
+      In practice, 90% of "disasters" are not full region failures — they are misconfigurations, bad deployments, or secrets breaches. This DR design handles all of those without needing to invoke the full failover. The immutable container tags, Secrets Manager rotation, and multi-AZ ECS cover the common cases. Full region failover (Lambda-triggered) is the safety net for the rare catastrophic case.
+    </div>
+  </section>
+
+  <!-- ── 10. RTO/RPO ───────────────────────────────────────────────────────── -->
+  <section class="section" id="rto-rpo">
+    <h2><span class="num">10</span>RTO &amp; RPO Summary</h2>
+    <p><strong>RTO (Recovery Time Objective)</strong> = how long the application is unavailable. <strong>RPO (Recovery Point Objective)</strong> = how much data can be lost.</p>
+    <table>
+      <tr><th>Component</th><th>RTO</th><th>RPO</th><th>Recovery mechanism</th></tr>
+      <tr><td>ECS Fargate (all services)</td><td>5–10 min</td><td>0 (stateless)</td><td>Lambda scales desiredCount from 0 → N</td></tr>
+      <tr><td>TimescaleDB</td><td>8–12 min (instance start)</td><td>Up to 24h</td><td>EC2 start + EBS snapshot restore if needed</td></tr>
+      <tr><td>Redis</td><td>1–3 min</td><td>0 (cache — expected loss)</td><td>Already running in DR (t4g.micro)</td></tr>
+      <tr><td>S3 Artifacts</td><td>0 min</td><td>Seconds</td><td>CRR keeps DR bucket current</td></tr>
+      <tr><td>ECR Images</td><td>0 min</td><td>Seconds</td><td>Cross-region replication on push</td></tr>
+      <tr><td>DNS routing</td><td>2–4 min</td><td>N/A</td><td>Route53 health check flips DNS automatically</td></tr>
+      <tr><td><strong>Full region failover</strong></td><td><strong>15–20 min total</strong></td><td><strong>&lt;24h</strong></td><td><strong>End-to-end automated pipeline</strong></td></tr>
+    </table>
+    <div class="explain-box" id="exp-rpo">
+      <h4>How to reduce RPO below 24 hours</h4>
+      Change the AWS Backup schedule from daily to every 6 hours: <code>schedule = "cron(0 */6 * * ? *)"</code>. This reduces worst-case data loss from 24h to 6h at an additional cost of ~$4/month in snapshot storage. For even tighter RPO, consider PostgreSQL streaming replication to a standby in ap-south-1 (requires removing the Docker layer and running TimescaleDB directly on EC2 or RDS).
+    </div>
+  </section>
+
+  <!-- ── 11. Cost ──────────────────────────────────────────────────────────── -->
+  <section class="section" id="cost">
+    <h2><span class="num">11</span>DR Cost Breakdown</h2>
+    <p>Pilot Light strategy keeps DR costs minimal — the most expensive components in production (ECS Fargate tasks, full-size EC2) cost nothing while in standby.</p>
+    <div class="cost-grid">
+      <div class="cost-card"><div class="label">NAT Gateway (1x)</div><div class="value">~$32</div><div class="sub">vs $64 with 1-per-AZ</div></div>
+      <div class="cost-card"><div class="label">TimescaleDB EBS (200 GB gp3)</div><div class="value">~$16</div><div class="sub">EC2 stopped = no instance cost</div></div>
+      <div class="cost-card"><div class="label">Redis (t4g.micro)</div><div class="value">~$12</div><div class="sub">Smallest ElastiCache node</div></div>
+      <div class="cost-card"><div class="label">ALB (idle)</div><div class="value">~$18</div><div class="sub">Fixed base charge</div></div>
+      <div class="cost-card"><div class="label">ECR Storage</div><div class="value">~$2</div><div class="sub">10 images × 4 services</div></div>
+      <div class="cost-card"><div class="label">AWS Backup Snapshots</div><div class="value">~$8</div><div class="sub">14-day retention in DR vault</div></div>
+      <div class="cost-card"><div class="label">S3 Replica + CRR</div><div class="value">~$3</div><div class="sub">Storage + replication requests</div></div>
+      <div class="cost-card"><div class="label">Route53 + Lambda</div><div class="value">~$1</div><div class="sub">Health checks + invocations</div></div>
+    </div>
+    <div class="alert alert-ok">
+      <strong>Total pilot-light standby cost: ~$92/month</strong> — compared to ~$600/month for full active/active. This is a 85% cost saving with an RTO that is still acceptable for a startup serving retail investors.
+    </div>
+    <div class="explain-box" id="exp-cost">
+      <h4>What costs zero while in standby?</h4>
+      ECS Fargate tasks at <code>desired_count=0</code> → <strong>$0</strong> per month in compute. The stopped TimescaleDB EC2 (m6i.large would be ~$70/month) → <strong>$0</strong> instance charge (only EBS disk at $16). The ECS services and task definitions exist as free metadata. The result is that the most expensive components cost nothing until the moment they're needed.
+    </div>
+  </section>
+
+  <!-- ── 12. Runbook ───────────────────────────────────────────────────────── -->
+  <section class="section" id="runbook">
+    <h2><span class="num">12</span>Failover Runbook</h2>
+    <p>This runbook covers both the <strong>automated path</strong> (Lambda handles it) and the <strong>manual override path</strong> (when automation fails).</p>
+    <h3>Automated Failover (expected path)</h3>
+    <div class="timeline">
+      <div class="tl-item">
+        <div class="tl-dot ok">T+0</div>
+        <div class="tl-body"><h4>Incident detected</h4><p>Route53 health check fails 3× in 90 seconds. CloudWatch alarm → ALARM state. SNS email sent to alert_email.</p></div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot ok">T+2m</div>
+        <div class="tl-body"><h4>Lambda triggers</h4><p>EventBridge fires the failover Lambda. Lambda starts TimescaleDB EC2, waits for <code>instance_running</code> state.</p></div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot warn">T+5m</div>
+        <div class="tl-body"><h4>TimescaleDB up</h4><p>EC2 instance running. User-data script starts Docker container with TimescaleDB. Database accepting connections.</p></div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot warn">T+7m</div>
+        <div class="tl-body"><h4>ECS scaling</h4><p>Lambda calls <code>ecs:UpdateService</code> for frontend (×2), backend (×2), worker (×2), beat (×1). ECS schedules tasks on Fargate.</p></div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot warn">T+15m</div>
+        <div class="tl-body"><h4>Services healthy</h4><p>All ECS tasks pass ALB health checks. DR ALB returns 200 on /health. Route53 SECONDARY record is active.</p></div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot ok">T+20m</div>
+        <div class="tl-body"><h4>Users restored</h4><p>DNS TTL expires. All new user requests resolve to DR ALB in Mumbai. StockMind fully operational from DR region.</p></div>
+      </div>
+    </div>
+    <h3>Manual Override (if Lambda fails)</h3>
+    <div class="code-wrap">
+      <span class="code-label">Bash — manual DR activation</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+<pre><span class="cmt"># 1. Start TimescaleDB EC2</span>
+aws ec2 start-instances \
+  --instance-ids i-xxxxxxxxxxxxxxxxx \
+  --region ap-south-1
+
+<span class="cmt"># 2. Wait for instance to be running</span>
+aws ec2 wait instance-running \
+  --instance-ids i-xxxxxxxxxxxxxxxxx \
+  --region ap-south-1
+
+<span class="cmt"># 3. Scale ECS services</span>
+<span class="kw">for</span> svc <span class="kw">in</span> stockmind-dr-frontend-svc stockmind-dr-backend-svc \
+              stockmind-dr-worker-svc stockmind-dr-beat-svc; <span class="kw">do</span>
+  aws ecs update-service \
+    --cluster stockmind-dr-cluster \
+    --service $svc \
+    --desired-count 2 \
+    --region ap-south-1
+<span class="kw">done</span>
+
+<span class="cmt"># 4. Verify (wait for RUNNING tasks)</span>
+aws ecs describe-services \
+  --cluster stockmind-dr-cluster \
+  --services stockmind-dr-backend-svc \
+  --region ap-south-1 \
+  --query <span class="str">'services[0].runningCount'</span></pre>
+    </div>
+    <div class="explain-box" id="exp-runbook">
+      <h4>When would I need the manual override?</h4>
+      The Lambda itself could fail to trigger if: (1) the EventBridge rule had a misconfigured event pattern, (2) the Lambda IAM role lost its EC2/ECS permissions, (3) the Lambda function itself had a bug. The manual override above achieves the same result in about the same time — it's the same AWS API calls the Lambda makes, run from your terminal.
+    </div>
+  </section>
+
+  <!-- ── 13. Testing ───────────────────────────────────────────────────────── -->
+  <section class="section" id="testing">
+    <h2><span class="num">13</span>DR Testing Guide</h2>
+    <p>An untested DR plan is not a DR plan. These tests should be run <strong>quarterly</strong> in a maintenance window.</p>
+    <table>
+      <tr><th>Test</th><th>Frequency</th><th>How to run</th><th>Pass criteria</th></tr>
+      <tr><td>ECS scale-up test</td><td>Monthly</td><td>Manually run Lambda or scale ECS from CLI</td><td>All services healthy within 20 min</td></tr>
+      <tr><td>TimescaleDB restore test</td><td>Quarterly</td><td>Restore latest DR vault snapshot to test instance</td><td>Data queryable, no corruption errors</td></tr>
+      <tr><td>DNS failover test</td><td>Quarterly</td><td>Temporarily disable primary ALB health check endpoint</td><td>Route53 serves DR ALB within 5 min</td></tr>
+      <tr><td>Secret rotation drill</td><td>Monthly</td><td>Rotate JWT secret, force ECS redeploy, verify login still works</td><td>Zero 5xx errors after redeploy</td></tr>
+      <tr><td>Full DR drill</td><td>Quarterly</td><td>Start DR, run smoke tests, then failback to primary</td><td>RTO &lt;20 min, all endpoints return 200</td></tr>
+    </table>
+    <div class="code-wrap">
+      <span class="code-label">Bash — trigger test failover (safe)</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+<pre><span class="cmt"># Invoke Lambda directly to test failover without waiting for health check</span>
+aws lambda invoke \
+  --function-name stockmind-dr-failover \
+  --region ap-south-1 \
+  --payload <span class="str">'{"detail":{"state":{"value":"ALARM"}}}'</span> \
+  --cli-binary-format raw-in-base64-out \
+  /tmp/failover-response.json
+
+cat /tmp/failover-response.json</pre>
+    </div>
+    <div class="explain-box" id="exp-testing">
+      <h4>How to test without affecting production users</h4>
+      The safest way to test is to invoke the Lambda directly (as shown above) rather than triggering the full Route53 health-check → alarm → EventBridge chain. This starts the DR services in Mumbai without changing DNS. Users stay on Hyderabad. You can then hit the DR ALB directly (by its DNS name) to verify everything works, run your smoke tests, then scale the DR ECS services back to 0 to restore the standby state.
+    </div>
+  </section>
+
+  <!-- ── 14. Deploy ────────────────────────────────────────────────────────── -->
+  <section class="section" id="terraform">
+    <h2><span class="num">14</span>How to Deploy</h2>
+    <div class="alert alert-warn">
+      <strong>Prerequisites:</strong> Terraform ≥ 1.5, AWS CLI configured with credentials that have IAM/EC2/ECS/S3/Route53 write access, the primary production stack already deployed and its outputs noted.
+    </div>
+    <div class="code-wrap">
+      <span class="code-label">Bash — initial setup</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+<pre><span class="cmt"># 1. Clone the DR repo</span>
+git clone https://github.com/srinureddy/stockmind-dr-infrastructure.git
+cd stockmind-dr-infrastructure
+
+<span class="cmt"># 2. Copy and fill in your values</span>
+cp terraform.tfvars.example terraform.tfvars
+<span class="cmt"># edit terraform.tfvars — fill primary_alb_dns, secrets, route53_zone_id, etc.</span>
+
+<span class="cmt"># 3. Find the DR region AMI for Amazon Linux 2023</span>
+aws ssm get-parameter \
+  --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64 \
+  --region ap-south-1 \
+  --query Parameter.Value
+
+<span class="cmt"># 4. Initialise and apply</span>
+terraform init
+terraform plan   <span class="cmt"># review carefully — especially ECR replication (account-level)</span>
+terraform apply</pre>
+    </div>
+    <div class="code-wrap">
+      <span class="code-label">Bash — failback to primary (after incident resolved)</span>
+      <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+<pre><span class="cmt"># 1. Verify primary is healthy</span>
+curl -I https://api.stockmindai.xyz/health
+
+<span class="cmt"># 2. Scale DR services back to 0 (pilot light state)</span>
+<span class="kw">for</span> svc <span class="kw">in</span> frontend-svc backend-svc worker-svc beat-svc; <span class="kw">do</span>
+  aws ecs update-service \
+    --cluster stockmind-dr-cluster \
+    --service stockmind-dr-$svc \
+    --desired-count 0 \
+    --region ap-south-1
+<span class="kw">done</span>
+
+<span class="cmt"># 3. Stop the TimescaleDB EC2</span>
+aws ec2 stop-instances \
+  --instance-ids i-xxxxxxxxxxxxxxxxx \
+  --region ap-south-1
+
+<span class="cmt"># 4. Route53 will automatically route back to primary once health check passes</span></pre>
+    </div>
+    <div class="explain-box" id="exp-terraform">
+      <h4>Terraform provider aliases explained</h4>
+      This DR project uses three provider aliases because resources span multiple regions: <code>aws.primary</code> (ap-south-2) for S3 replication role and ECR replication config which must be created in the source region; <code>aws.dr</code> (ap-south-1) for all DR infrastructure; and <code>aws.us_east_1</code> (us-east-1) for the CloudWatch alarm on the Route53 health check, which AWS requires to be in us-east-1. Without these aliases Terraform would create everything in a single region, breaking the cross-region resources.
+    </div>
+  </section>
+
+</main>
+
+<script>
+let explainOn = false;
+
+function toggleExplain(){
+  explainOn = !explainOn;
+  document.querySelectorAll('.explain-box').forEach(b=>{
+    b.classList.toggle('show', explainOn);
+  });
+  const btn = document.getElementById('explain-btn');
+  btn.textContent = explainOn ? '💡 Hide Explanations' : '💡 Explain Mode';
+  btn.classList.toggle('on', explainOn);
+}
+
+// Progress bar
+window.addEventListener('scroll',()=>{
+  const h = document.documentElement;
+  const pct = (h.scrollTop/(h.scrollHeight-h.clientHeight))*100;
+  document.getElementById('progress').style.width = pct+'%';
+});
+
+// Scroll spy
+const sections = document.querySelectorAll('.section[id]');
+const navLinks  = document.querySelectorAll('#sidebar a');
+const obs = new IntersectionObserver(entries=>{
+  entries.forEach(e=>{
+    if(e.isIntersecting){
+      navLinks.forEach(a=>a.classList.remove('active'));
+      const active = document.querySelector(`#sidebar a[href="#${e.target.id}"]`);
+      if(active) active.classList.add('active');
+    }
+  });
+},{rootMargin:'-30% 0px -60% 0px'});
+sections.forEach(s=>obs.observe(s));
+
+// Search
+function filterNav(q){
+  const val = q.toLowerCase();
+  navLinks.forEach(a=>{
+    a.style.display = a.textContent.toLowerCase().includes(val) ? '' : 'none';
+  });
+}
+
+// Copy code
+function copyCode(btn){
+  const pre = btn.closest('.code-wrap').querySelector('pre');
+  navigator.clipboard.writeText(pre.innerText).then(()=>{
+    btn.textContent='Copied!';
+    setTimeout(()=>btn.textContent='Copy',1800);
+  });
+}
+</script>
+</body>
+</html>

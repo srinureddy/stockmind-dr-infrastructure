@@ -1,0 +1,55 @@
+# Copy this file to terraform.tfvars and fill in real values.
+# terraform.tfvars is gitignored — never commit it.
+
+primary_region = "ap-south-2"
+dr_region      = "ap-south-1"
+project        = "stockmind"
+environment    = "prod"
+
+primary_azs = ["ap-south-2a", "ap-south-2b"]
+dr_azs      = ["ap-south-1a", "ap-south-1b"]
+
+primary_vpc_cidr = "10.40.0.0/16"
+dr_vpc_cidr      = "10.50.0.0/16"
+
+# From terraform output of production_stack:
+primary_alb_dns     = "stockmind-prod-alb-XXXXXXXXX.ap-south-2.elb.amazonaws.com"
+primary_alb_zone_id = "Z1UJRXOUMOOFQ8"   # ALB hosted zone ID for ap-south-2
+primary_s3_bucket   = "stockmind-prod-770170581875-artifacts"
+primary_ecr_registry_id = "770170581875"
+
+# DNS
+domain_name     = "stockmindai.xyz"
+api_domain_name = "api.stockmindai.xyz"
+route53_zone_id = "ZXXXXXXXXXX"   # Route53 hosted zone ID
+
+# TimescaleDB in DR region (query SSM for AL2023 AMI in ap-south-1)
+# aws ssm get-parameter --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64 --region ap-south-1 --query Parameter.Value --output text
+timescale_ami_id_dr     = "ami-REPLACE_WITH_AP_SOUTH_1_AMI"
+timescale_instance_type = "m6i.large"
+timescale_volume_size   = 200
+timescale_image         = "timescale/timescaledb-ha:pg16-latest"
+timescale_db_name       = "stockmind"
+timescale_db_user       = "stockmind"
+
+# Docker image tags — keep in sync with primary
+frontend_image_tag = "v1"
+backend_image_tag  = "v1"
+worker_image_tag   = "v1"
+beat_image_tag     = "v1"
+
+# Secrets — must exactly match values in primary region Secrets Manager
+db_password          = "CHANGE_ME_strong_password"
+jwt_secret           = "CHANGE_ME_64_char_hex"      # python3 -c "import secrets; print(secrets.token_hex(32))"
+encryption_key       = "CHANGE_ME_fernet_key="      # python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+redis_auth_token     = "CHANGE_ME_redis_token"
+upstox_client_id     = "CHANGE_ME"
+upstox_client_secret = "CHANGE_ME"
+upstox_access_token  = ""
+
+# Alerts
+alert_email = "ops-team@yourcompany.com"
+
+# DR Strategy: "pilot_light" (ECS@0, DB stopped) or "warm_standby" (minimal live)
+dr_strategy            = "pilot_light"
+warm_standby_min_count = 1
